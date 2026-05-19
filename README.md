@@ -1,6 +1,8 @@
 # Quantum-Hackathon
 
 
+# Quantum Key Distribution — BB84 Protocol
+
 ## Description
 This project simulates Quantum Key Distribution using the BB84 protocol.
 
