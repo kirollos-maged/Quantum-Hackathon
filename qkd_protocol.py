@@ -36,7 +36,6 @@ def encode_qubit(bit, basis):
         qc.h(0)
 
     return qc
-
 # =========================================================
 # Measure Qubit
 # =========================================================
@@ -68,7 +67,6 @@ def eve_intercept_resend(qc):
 
     return resent_qc
 
-
 # =========================================================
 # Add Channel Noise
 # =========================================================
@@ -76,6 +74,7 @@ def apply_noise(bit, probability):
     if random.random() < probability:
         return 1 - bit
     return bit
+
 
 # =========================================================
 # Sifting Phase
@@ -107,7 +106,6 @@ def calculate_qber(alice_key, bob_key):
 
     return errors / len(alice_key)
 
-
 # =========================================================
 # Plot QBER Graph
 # =========================================================
@@ -121,6 +119,7 @@ def plot_qber(qber_without_eve, qber_with_eve):
     plt.title('Quantum Bit Error Rate')
     plt.ylim(0, 1)
     plt.show()
+
 
 # =========================================================
 # Main BB84 Protocol
@@ -151,7 +150,7 @@ def run_bb84_protocol(num_bits=100, eve_enabled=False, noise_probability=0.0):
 
         # Add Noise
         measured = apply_noise(measured, noise_probability)
-
+        
         bob_results.append(measured)
 
     # Sifting
@@ -167,6 +166,7 @@ def run_bb84_protocol(num_bits=100, eve_enabled=False, noise_probability=0.0):
 
     # Threshold
     threshold = 0.11
+
     print(f"\nRaw Key Length: {len(alice_key)}")
     print(f"QBER: {qber:.4f}")
 
@@ -188,7 +188,7 @@ def run_bb84_protocol(num_bits=100, eve_enabled=False, noise_probability=0.0):
         plot_qber(qber_without_eve, qber)
 
 
-# =========================================================
+    # =========================================================
 # Simulate No Eve
 # =========================================================
 def simulate_without_eve(num_bits):
@@ -214,4 +214,3 @@ def simulate_without_eve(num_bits):
     qber = calculate_qber(alice_key, bob_key)
 
     return qber
-  
