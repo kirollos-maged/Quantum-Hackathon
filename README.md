@@ -1,219 +1,82 @@
-# Quantum Key Distribution — BB84 & E91
+# Quantum Key Distribution: BB84 and E91
 
-A full simulation of two quantum key distribution protocols, built in Python with real quantum circuits via Qiskit. Covers key exchange, eavesdrop detection, and secret key distillation — all three core pillars — plus noisy channel modelling, protocol comparison, and key-rate analysis as stretch goals.
+An educational Python project that simulates selected steps of the BB84 and E91 quantum key distribution protocols. Run `main.py` to see key sifting, simulated eavesdropping and channel noise, QBER checks, an E91-style CHSH score, and simplified key post-processing.
 
----
+> **Scope and security:** This is a classical, probabilistic simulation for learning and demonstration. It does not create or measure quantum states, use Qiskit, connect to quantum hardware, perform a Bell experiment, or provide QKD-grade security. The E91 correlations and security checks are modeled with ordinary random-number generation and must not be interpreted as experimental evidence or a security guarantee.
 
-## The Problem
+## What the simulation demonstrates
 
-Classical key exchange (e.g. Diffie-Hellman, RSA) depends on computational hardness assumptions. A sufficiently powerful quantum computer running Shor's algorithm breaks both. We need a way to distribute secret keys whose security is guaranteed by the laws of physics, not by the difficulty of a math problem.
+### BB84
 
-**The core challenge: how do two parties (Alice and Bob) agree on a shared secret key over a public channel, while being able to detect if anyone is listening?**
+In `bb84.py`, Alice's bits and Z/X bases and Bob's measurement bases are generated with Python's `random` module. The simulation represents each transmitted qubit as a `(bit, basis)` pair:
 
-Quantum mechanics gives us the answer through two properties:
+1. If enabled, Eve intercepts a configurable fraction, chooses a random basis, and resends the simulated result.
+2. Optional channel noise flips bits at a configured rate.
+3. Bob's simulated measurement agrees with the transmitted bit for a matching basis; for a different basis, the result is random.
+4. `utils.py` sifts positions where Alice and Bob's bases match. A random sample of sifted bits estimates QBER and is excluded from the remaining key material.
+5. The run aborts when sampled QBER exceeds the configured threshold (11% by default).
 
-- **No-cloning theorem** — an unknown quantum state cannot be copied perfectly. Any eavesdropper must disturb the qubits they intercept.
-- **Measurement collapse** — measuring a qubit in the wrong basis destroys the original state and introduces detectable errors.
+### E91
 
-This project implements and demonstrates two protocols that exploit these properties: **BB84** (prepare-and-measure) and **E91** (entanglement-based).
+In `e91.py`, each pair's outcomes are generated classically. The model uses a cosine probability based on the randomly selected measurement angles; it does not construct an entangled state or run a quantum circuit. The program uses A0/B0 settings for candidate key bits, computes a CHSH-style score from simulated correlations, and aborts when the score is below 2.2 or sampled QBER exceeds 11% by default. These checks illustrate protocol concepts only; they do not demonstrate Bell inequality violation in an experiment.
 
----
+### Simplified post-processing
 
-## The Solution — Three Pillars
+For either protocol, `utils.py` demonstrates:
 
-### Pillar 1 · Key Exchange
+- **Reconciliation:** a single pass over non-overlapping blocks, comparing parities and using binary search to locate and flip a mismatched bit. It counts announced parity bits as leakage.
+- **Privacy-amplification-shaped output:** the reconciled bits are encoded as bytes, hashed once with SHA-256, and the digest is truncated according to a simplified length estimate based on parity leakage, an estimated Eve-known amount, and a fixed margin.
 
-**BB84 (Bennett & Brassard, 1984)**
+This SHA-256 procedure is **not** a universal hash construction or a proof of privacy amplification. The result cannot exceed the 256-bit digest size, regardless of the computed target length. The simplified reconciliation and leakage estimates are likewise not a complete security analysis.
 
-Alice picks a random bit and a random basis (Z = rectilinear, X = diagonal) for each qubit she sends. Bob independently picks a random basis to measure each qubit. After transmission, they publicly announce their *bases* (not their bits). They keep only the positions where their bases matched — the sifted key. About 50% of bits survive sifting.
+## Run it
 
-```
-Alice bit:   0   1   1   0   1   0   0   1
-Alice basis: Z   X   Z   X   Z   X   X   Z
-Bob basis:   Z   Z   Z   X   X   X   X   Z
-             ✓   ✗   ✓   ✓   ✗   ✓   ✓   ✓   ← basis match?
-Sifted key:  0       1   0       0   0   1
-```
-
-**E91 (Ekert, 1991)**
-
-A source emits entangled Bell pairs (|Φ+⟩ = (|00⟩+|11⟩)/√2). Alice receives one qubit, Bob the other. Each independently picks a measurement angle. Positions where both chose the A0/B0 angle pair become the raw key; the other angle combinations feed a CHSH security test.
-
-Both protocols use **real Qiskit quantum circuits** (`quantum.py`) — Qiskit's `Statevector` simulator handles the actual quantum mechanics, not just classical coin flips.
-
----
-
-### Pillar 2 · Eavesdrop Detection
-
-**BB84 — QBER threshold**
-
-Eve performs an intercept-resend attack: she measures each qubit in a random basis and re-sends a fresh qubit toward Bob. When she guesses the wrong basis (~50% of the time) she introduces an error. The **Quantum Bit Error Rate** rises to ~25% under a full attack.
-
-```
-No Eve:    QBER ≈  0–2%   → session continues
-Eve 30%:   QBER ≈  7–8%   → session continues (Eve partially detected)
-Eve 50%+:  QBER ≈ 12–14%  → session ABORTED
-Eve 100%:  QBER ≈  25%    → session ABORTED
-```
-
-If QBER exceeds **11%** (the standard BB84 security bound), Alice and Bob abort — no key is produced.
-
-**E91 — CHSH inequality test**
-
-Genuine entanglement produces correlations that violate the CHSH inequality. The S-value for |Φ+⟩ at the chosen angles sits around **2.4**, well above the classical bound of **2.0**. When Eve intercepts qubits she destroys the entanglement, and S collapses toward 2.0.
-
-```
-No Eve:  S ≈ 2.4  → genuine entanglement confirmed, session continues
-Eve:     S ≈ 0.1  → entanglement destroyed, session ABORTED
-```
-
-The session aborts if S < **2.2** or QBER > 11%, whichever triggers first.
-
----
-
-### Pillar 3 · Secret Key Distillation
-
-Even after eavesdrop detection passes, the sifted key may still have errors from channel noise or partial Eve activity. Three steps turn it into a final secure key:
-
-**Step 1 — Sifting** (done in Pillar 1)
-Discard positions where Alice and Bob used different bases.
-
-**Step 2 — Error Reconciliation**
-Single-pass Cascade-style binary parity. Alice announces the XOR parity of non-overlapping blocks. For any block where Bob's parity disagrees, a binary search locates and flips the erroneous bit. Every parity announcement leaks one bit of information to Eve, so each leaked bit is counted precisely.
-
-```
-Block size 8 → Alice announces 1 parity bit per block (1 bit leaked)
-Binary search → up to 3 additional parity bits per bad block
-All leakage is tracked and removed in the next step.
-```
-
-**Step 3 — Privacy Amplification**
-The reconciled key is compressed using SHA-256. Output length is determined by the Shor-Preskill formula:
-
-```
-L = n × (1 - h₂(QBER)) - leak_EC - 2 × log₂(1/ε)
-```
-
-where `h₂` is binary entropy and `ε = 10⁻¹⁰` is the security parameter. This removes Eve's partial knowledge accumulated from both interception and reconciliation leakage, producing the **final shared secret key**.
-
----
-
-## Stretch Goals
-
-| Goal | Implementation |
-|---|---|
-| Noisy channel | `apply_channel_noise()` in `utils.py` — independently flips bits at a configurable rate, modelling real fiber/free-space losses |
-| Protocol comparison | Scenario 7 in `main.py` — 5-trial average key rate for BB84 vs E91 |
-| Key-rate metrics | Every result dict includes `key_rate` (final bits / raw qubits) and `efficiency` (final bits / sifted bits) |
-| Real quantum circuits | `quantum.py` — genuine Qiskit `QuantumCircuit` objects, not classical approximations |
-
----
-
-## File Structure
-
-```
-.
-├── main.py          — entry point; runs all 7 demonstration scenarios
-├── bb84.py          — BB84 protocol orchestration
-├── e91.py           — E91 protocol orchestration
-├── quantum.py       — Qiskit circuits for BB84 and E91 measurements
-├── utils.py         — sifting, reconciliation, privacy amplification, QBER, helpers
-├── requirements.txt — dependencies (qiskit>=1.0, numpy)
-└── README.md        — this file
-```
-
-### How the files connect
-
-```
-main.py
-  ├── BB84  (bb84.py)
-  │     ├── bb84_prepare_and_measure()  ←  quantum.py  (Qiskit circuit)
-  │     └── sift / reconcile / privacy_amplify  ←  utils.py
-  └── E91   (e91.py)
-        ├── bell_pair_measure()  ←  quantum.py  (Qiskit Bell-pair circuit)
-        └── calculate_qber / reconcile / privacy_amplify  ←  utils.py
-```
-
----
-
-## Setup & Run
-
-**Requirements:** Python 3.10+
+The project requires Python 3. The current modules use only the Python standard library. `requirements.txt` lists NumPy, but the checked-in Python code does not import it; installing that file is not needed to run the simulation.
 
 ```bash
-pip install -r requirements.txt
 python main.py
 ```
 
-> **Speed note:** E91 runs a real Qiskit Statevector circuit per entangled pair. With `n_pairs=2000` this takes a few seconds per scenario. Reduce `n_pairs` to 300–500 if you just want a quick test.
+To install the package listed in `requirements.txt` anyway:
 
----
-
-## Sample Output
-
-```
-============================================================
-  PILLAR 2 · QBER SWEEP — Eve intercept fraction 0 %→100 %
-============================================================
-
-   Eve fraction      QBER   Aborted   Final key len
-  -------------  --------  --------  --------------
-            0%     0.00%        no             189
-           10%     1.32%        no             171
-           20%     4.05%        no             143
-           30%    11.56%       YES               0
-           50%    13.38%       YES               0
-           75%    20.26%       YES               0
-          100%    24.77%       YES               0
-
-============================================================
-  STRETCH · E91 EAVESDROP DETECTION
-============================================================
-
-  ▶  E91 — no Eve (reference)
-     CHSH S-value      : 2.4308  (classical ≤ 2.000, quantum ≤ 2.828)
-     QBER              : 1.96%
-     Session aborted   : False
-     Final key length  : 256 bits
-
-  ▶  E91 — Eve intercepts ALL pairs
-     CHSH S-value      : 0.0947  (classical ≤ 2.000, quantum ≤ 2.828)
-     QBER              : 43.84%
-     Session aborted   : True
-     ⚠  Session aborted — no key produced.
-
-============================================================
-  ✓ Pillar 1 — Key Exchange (BB84 + E91)
-  ✓ Pillar 2 — Eavesdrop Detection (QBER + CHSH)
-  ✓ Pillar 3 — Secret Key Distillation (sift→reconcile→amplify)
-  ✓ Stretch  — Noisy channels, protocol comparison, key-rate sweep
-============================================================
+```bash
+python -m pip install -r requirements.txt
 ```
 
----
+`main.py` runs seven groups of demonstrations: a clean BB84 run, full-interception BB84, an Eve-fraction sweep, a channel-noise sweep, a clean E91 run, full-interception E91, and a BB84/E91 key-rate comparison. E91 uses Python loops for each simulated pair, so larger pair counts take longer.
 
-## Security Parameters
+## Output and randomness
 
-| Parameter | Value | Reason |
-|---|---|---|
-| QBER abort threshold | 11% | Standard BB84 bound — above this Eve's information cannot be bounded |
-| CHSH abort threshold | S < 2.2 | Conservative margin above the classical bound (2.0) |
-| Privacy amplification ε | 10⁻¹⁰ | Security parameter driving how aggressively the key is compressed |
-| Reconciliation block size | 8 bits | Smaller blocks fix more errors but leak more parity bits |
-| Security margin | 8 bits | Additional buffer subtracted from final key length |
+The program prints run statistics to the terminal, including sifted and reconciled lengths, sampled QBER, abort status, final digest-derived key length, and key rate. It does not provide a graphical interface.
 
----
+All random choices are unseeded, so output changes between runs. Any output values or tables shown in project materials should be treated as **illustrative examples**, not guaranteed results or reproducible benchmarks. Under this model, sample-based QBER can also vary noticeably from run to run.
 
-## Design Decisions & Tradeoffs
+## Repository layout
 
-**Why SHA-256 for privacy amplification?**
-The provably secure choice is a Toeplitz matrix (a 2-universal hash family), which gives a full information-theoretic guarantee. SHA-256 is used here as a practical substitute — acceptable for simulation, but not for a certified real-device deployment.
+```text
+.
+├── main.py          # Runs the demonstration scenarios and prints results
+├── bb84.py          # Classical BB84 workflow simulation
+├── e91.py           # Classical E91-style correlation simulation
+├── utils.py         # Sifting, QBER, reconciliation, hashing, and helpers
+├── requirements.txt # Lists NumPy (not imported by the current Python code)
+├── README.md        # Project overview and run instructions
+└── QKD_BB84_E91_Qiskit.pptx  # Presentation deck
+```
 
-**Why sample only 10% of sifted bits for QBER?**
-The bits used to estimate QBER are publicly compared and must be discarded. Using 10% preserves 90% of the sifted key for actual key material, balancing estimate accuracy against key length.
+## Main configurable parameters
 
-**Why does E91 produce a lower key rate than BB84?**
-BB84 keeps ~50% of raw bits after sifting. E91 uses only the A0/B0 angle pair for key bits (~25% of pairs) and spends the rest on the CHSH test. The security certificate costs throughput.
+`BB84` and `E91` expose their run sizes and simulation settings as constructor arguments. Defaults include:
 
-**Why doesn't the CHSH S-value reach the theoretical maximum of 2√2 ≈ 2.828?**
-The angles {0°, 45°} for Alice and {22.5°, 67.5°} for Bob produce a theoretical S ≈ 2.39 for |Φ+⟩, not the absolute maximum. Reaching 2√2 requires a different state (|Ψ−⟩) and angle set. The chosen angles are standard in the literature and give a clear, unambiguous Bell violation.
+| Parameter | Default | Meaning in this simulation |
+|---|---:|---|
+| `n_bits` / `n_pairs` | 1,000 | Number of bits or pairs simulated |
+| `eve_present` | `False` | Whether to enable the simplified Eve model |
+| `eve_intercept_fraction` | `1.0` | Fraction of transmissions affected when Eve is enabled |
+| `channel_error` | `0.0` | Probability of a simulated channel bit flip |
+| `qber_threshold` | `0.11` | Abort threshold applied to sampled QBER |
+| `block_size` | `8` | Reconciliation block size |
+| `security_margin` | `8` bits | Fixed subtraction in the simplified output-length estimate |
+| E91 `chsh_threshold` | `2.2` | Minimum simulated CHSH-style score before abort |
+
+These are simulation controls, not validated security parameters. The `main.py` scenarios sometimes override the defaults.
